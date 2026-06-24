@@ -34,5 +34,5 @@ Generates a weekly meal plan covering breakfast, lunch, and dinner for 7 days. D
 
 - Newly sourced recipes always get `status: untried` — do not change this.
 - The plan file overwrites any existing plan for the same week.
-- To change dietary mode or preferences, edit `config.yaml` directly (the `/meal-config` skill is not yet available).
+- To change dietary mode or preferences, use the `/meal-config` skill.
 - The script requires `ANTHROPIC_API_KEY` set in `/home/nickarmet/Desktop/Projects/MealPlanner/.env`.
