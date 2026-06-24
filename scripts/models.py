@@ -82,8 +82,14 @@ class Recipe:
         )
 
 
+# Only these headings are recognized as top-level section terminators.
+# A "##" line that doesn't match one of these names is treated as content
+# (e.g. a "## Storage" subheading inside Notes), not as a section boundary.
+_SECTION_STOP = r"(?=\n## (?:Ingredients|Instructions|Notes)\b|\Z)"
+
+
 def _parse_list_section(body: str, heading: str) -> list[str]:
-    m = re.search(rf"## {heading}\n(.*?)(?=\n## |\Z)", body, re.DOTALL)
+    m = re.search(rf"## {heading}\n(.*?){_SECTION_STOP}", body, re.DOTALL)
     if not m:
         return []
     return [
@@ -94,7 +100,7 @@ def _parse_list_section(body: str, heading: str) -> list[str]:
 
 
 def _parse_numbered_section(body: str, heading: str) -> list[str]:
-    m = re.search(rf"## {heading}\n(.*?)(?=\n## |\Z)", body, re.DOTALL)
+    m = re.search(rf"## {heading}\n(.*?){_SECTION_STOP}", body, re.DOTALL)
     if not m:
         return []
     return [
@@ -105,10 +111,5 @@ def _parse_numbered_section(body: str, heading: str) -> list[str]:
 
 
 def _parse_text_section(body: str, heading: str) -> str:
-    # Notes is always the last section, so we match to end-of-document only.
-    # This preserves any ## subheadings that may appear inside the notes body.
-    if heading == "Notes":
-        m = re.search(rf"## {heading}\n(.*?)(?=\Z)", body, re.DOTALL)
-    else:
-        m = re.search(rf"## {heading}\n(.*?)(?=\n## |\Z)", body, re.DOTALL)
+    m = re.search(rf"## {heading}\n(.*?){_SECTION_STOP}", body, re.DOTALL)
     return m.group(1).strip() if m else ""
