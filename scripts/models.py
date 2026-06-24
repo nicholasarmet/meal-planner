@@ -82,6 +82,32 @@ class Recipe:
         )
 
 
+@dataclass
+class DayPlan:
+    weekday: str    # "Sunday", "Monday", ...
+    breakfast: str  # fully formatted display text
+    lunch: str      # fully formatted display text
+    dinner: str     # "[[Recipe Title]] · Cuisine · Effort · N min" or "Leftovers — Title"
+
+
+@dataclass
+class MealPlan:
+    week_of: str          # ISO date "2026-06-29"
+    days: list[DayPlan]
+
+    def to_markdown(self) -> str:
+        lines = [f"# Meal Plan — Week of {self.week_of}", ""]
+        for day in self.days:
+            lines += [
+                f"## {day.weekday}",
+                f"**Breakfast:** {day.breakfast}",
+                f"**Lunch:** {day.lunch}",
+                f"**Dinner:** {day.dinner}",
+                "",
+            ]
+        return "\n".join(lines)
+
+
 # Only these headings are recognized as top-level section terminators.
 # A "##" line that doesn't match one of these names is treated as content
 # (e.g. a "## Storage" subheading inside Notes), not as a section boundary.
