@@ -28,9 +28,14 @@ _BATCH = 15
 _SYSTEM = """You are a recipe classifier and metadata validator.
 
 For each recipe, decide:
-1. Is it a COMPLETE DINNER? A complete dinner is a well-rounded meal — either a one-pot/one-pan meal OR a protein-centred dish with built-in components (vegetables, sauce, starch). NOT complete: side dishes, salad dressings, condiments, sauces, drinks, rice/grain preparation techniques, single vegetables.
-2. If complete: correct cuisine (list), effort, time_active (min), time_total (min).
-3. If not complete: what category? (side, sauce, drink, snack, technique)
+1. Is it a COMPLETE DINNER? A complete dinner is a well-rounded meal — either a one-pot/one-pan meal OR a protein-centred dish with built-in components (vegetables, sauce, starch).
+
+MEAT RULE: If a recipe contains any meat (chicken, beef, pork, lamb, turkey, duck, sausage, bacon, ham, veal, venison, bison, or any other animal flesh), classify it as a complete dinner UNLESS it is clearly a salad or slaw (category: "lunch") or a condiment/sauce made with meat (category: "side").
+
+NOT complete dinner: salad dressings, sauces, condiments, drinks, single vegetables or grains with no protein, rice/grain preparation techniques, dips, chips, nuts.
+
+2. If complete dinner: correct cuisine (list), effort, time_active (min), time_total (min).
+3. If not complete dinner: what category? (side, lunch, sauce, drink, snack, technique)
 
 Effort rubric:
 - easy: one pan/pot, ≤8 steps, ≤45 min total
