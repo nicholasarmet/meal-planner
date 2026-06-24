@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import json
 import os
 import random
 import re
@@ -56,6 +57,13 @@ def _next_sunday(ref: date | None = None) -> date:
     return d + timedelta(days=days_ahead)
 
 
+def _contains_disliked(recipe: Recipe, disliked: list[str]) -> bool:
+    if not disliked:
+        return False
+    combined = (recipe.title + " " + " ".join(recipe.ingredients)).lower()
+    return any(d.lower() in combined for d in disliked)
+
+
 def _filter_dinner_pool(
     recipes: list[Recipe],
     config: dict,
@@ -64,11 +72,14 @@ def _filter_dinner_pool(
     mode = config.get("dietary_mode", "normal")
     ref = reference_date or date.today()
     cutoff = ref - timedelta(weeks=4)
+    disliked = config.get("preferences", {}).get("disliked", [])
     result = []
     for r in recipes:
         if r.status not in ("loved", "tried"):
             continue
         if mode != "normal" and mode not in r.dietary:
+            continue
+        if _contains_disliked(r, disliked):
             continue
         if r.last_made:
             try:
@@ -78,6 +89,59 @@ def _filter_dinner_pool(
                 pass
         result.append(r)
     return result
+
+
+def _validate_lineup(
+    recipes: list[Recipe],
+    spare_pool: list[Recipe],
+    config: dict,
+) -> list[Recipe]:
+    """Ask Claude to review the dinner lineup for coherence; swap flagged slots from spare_pool."""
+    disliked = config.get("preferences", {}).get("disliked", [])
+    preferred = config.get("preferred_cuisines", [])
+
+    summary_lines = []
+    for i, r in enumerate(recipes):
+        key_ingredients = ", ".join(r.ingredients[:5]) if r.ingredients else "unknown"
+        summary_lines.append(
+            f"{i + 1}. {r.title} | cuisine: {', '.join(r.cuisine) or '?'} | "
+            f"effort: {r.effort} | key ingredients: {key_ingredients}"
+        )
+
+    prompt = (
+        f"Review this weekly dinner lineup for a family (2 adults, 1 child).\n\n"
+        f"{''.join(line + chr(10) for line in summary_lines)}\n"
+        f"Disliked ingredients (must not appear): {', '.join(disliked) or 'none'}\n"
+        f"Preferred cuisines: {', '.join(preferred) or 'any'}\n\n"
+        f"Check for:\n"
+        f"1. Any entry that is NOT a complete, well-rounded dinner "
+        f"(must have protein + built-in components — not a side dish, salad dressing, "
+        f"condiment, drink, or rice/grain preparation)\n"
+        f"2. The same main protein appearing more than 3 nights\n"
+        f"3. The same cuisine appearing more than 3 nights\n"
+        f"4. Any recipe likely to contain a disliked ingredient based on the key ingredients shown\n\n"
+        f"If everything looks good, return: {{\"ok\": true}}\n"
+        f"If some slots need replacing, return: {{\"ok\": false, \"replace\": [1, 3]}} (1-based positions)\n"
+        f"Return ONLY the JSON."
+    )
+
+    try:
+        raw = _call_claude(prompt).strip()
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not m:
+            return recipes
+        result = json.loads(m.group())
+        if result.get("ok"):
+            return recipes
+        to_replace = [i - 1 for i in result.get("replace", []) if isinstance(i, int)]
+        already_selected = set(id(r) for r in recipes)
+        spares = [r for r in spare_pool if id(r) not in already_selected]
+        for idx in sorted(to_replace):
+            if 0 <= idx < len(recipes) and spares:
+                recipes[idx] = spares.pop(0)
+    except Exception:
+        pass
+    return recipes
 
 
 def _weighted_select(recipes: list[Recipe], n: int, seed: int | None = None) -> list[Recipe]:
@@ -217,13 +281,17 @@ def generate_weekly_plan(
     week_str = week_start.isoformat()
 
     all_dinner_recipes = find_recipes(vault_path, meal_type="dinner")
+    disliked = config.get("preferences", {}).get("disliked", [])
 
     # 5 loved/tried (weighted by rating)
     pool = _filter_dinner_pool(all_dinner_recipes, config, reference_date=week_start)
     loved_tried = _weighted_select(pool, n=5)
 
-    # 1 untried from vault
-    untried_pool = [r for r in all_dinner_recipes if r.status == "untried"]
+    # 1 untried from vault — also filter disliked
+    untried_pool = [
+        r for r in all_dinner_recipes
+        if r.status == "untried" and not _contains_disliked(r, disliked)
+    ]
     untried = random.sample(untried_pool, 1) if untried_pool else []
 
     # 1 new from web via Claude
@@ -234,6 +302,10 @@ def generate_weekly_plan(
     # Pad if vault is sparse (e.g. brand new install)
     while len(all_seven) < 7 and pool:
         all_seven.append(pool[len(all_seven) % len(pool)])
+
+    # Validate and swap out any incoherent selections
+    spare_pool = [r for r in pool if r not in all_seven]
+    all_seven = _validate_lineup(all_seven, spare_pool, config)
 
     assigned = _assign_to_nights(all_seven)
 
