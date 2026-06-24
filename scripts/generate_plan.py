@@ -152,23 +152,28 @@ def _plan_breakfasts(week_of: date, seed: int | None = None) -> list[str]:
 
 
 def _plan_lunches(dinners: list[str], dedicated_days: int = 2) -> list[str]:
-    dedicated_indices = set(range(dedicated_days))
+    dedicated_indices = set(range(min(dedicated_days, len(dinners))))
     lunches: list[str] = []
-    for i in range(7):
+    for i in range(len(dinners)):
         if i in dedicated_indices:
             option = _LUNCH_OPTIONS[i % len(_LUNCH_OPTIONS)]
             lunches.append(f"Dedicated lunch — {option}")
         else:
-            prev = dinners[i - 1] if i > 0 else dinners[-1]
+            prev_idx = (i - 1) % len(dinners)
+            prev = dinners[prev_idx]
             title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", prev).strip()
-            if title.startswith("Leftovers") and i > 1:
-                prev2 = dinners[i - 2]
-                title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", prev2).strip()
+            if title.startswith("Leftovers"):
+                for k in range(2, len(dinners) + 1):
+                    candidate = dinners[(i - k) % len(dinners)]
+                    candidate_title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", candidate).strip()
+                    if not candidate_title.startswith("Leftovers"):
+                        title = candidate_title
+                        break
             lunches.append(f"Leftovers — {title}")
     return lunches
 
 
-def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Recipe:
+def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Recipe | None:
     sources = ", ".join(config.get("sources", ["serious-eats"]))
     cuisines = ", ".join(config.get("preferred_cuisines", []))
     mode = config.get("dietary_mode", "normal")
@@ -182,6 +187,9 @@ def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Re
         f"Return ONLY the full URL, nothing else."
     )
     url = _call_claude(prompt).strip()
+    if not url.startswith("http"):
+        print(f"[meal-planner] _source_new_recipe: Claude returned non-URL: {url!r:.80} — skipping")
+        return None
     recipe = ingest_from_url(url)
     recipe.status = "untried"
     save_recipe(recipe, vault_path)
@@ -210,7 +218,7 @@ def generate_weekly_plan(
     exclude_titles = [r.title for r in loved_tried + untried]
     new_recipe = _source_new_recipe(config, vault_path, exclude_titles)
 
-    all_seven = (loved_tried + untried + [new_recipe])[:7]
+    all_seven = (loved_tried + untried + ([new_recipe] if new_recipe else []))[:7]
     # Pad if vault is sparse (e.g. brand new install)
     while len(all_seven) < 7 and pool:
         all_seven.append(pool[len(all_seven) % len(pool)])

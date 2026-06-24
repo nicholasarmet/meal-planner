@@ -206,3 +206,65 @@ def test_write_meal_plan_creates_file(tmp_path):
     assert path.exists()
     assert path.name == "Week of 2026-06-29.md"
     assert "# Meal Plan — Week of 2026-06-29" in path.read_text()
+
+
+def test_plan_lunches_sparse_two_dinners():
+    """_plan_lunches must not crash when dinner list is shorter than 7."""
+    dinners = [
+        "[[Chicken Adobo]] · Filipino · Easy · 45 min",
+        "[[Beef Stew]] · American · Medium · 90 min",
+    ]
+    lunches = _plan_lunches(dinners, dedicated_days=1)
+    assert len(lunches) == 2
+    assert not any("IndexError" in l for l in lunches)
+
+
+def test_generate_weekly_plan_sparse_vault(tmp_path):
+    """generate_weekly_plan must succeed when the loved/tried pool is empty."""
+    recipes = [_r(f"Untried{i}", status="untried") for i in range(3)]
+    with patch("scripts.generate_plan.find_recipes", return_value=recipes), \
+         patch("scripts.generate_plan._call_claude", return_value="https://example.com/new"), \
+         patch("scripts.generate_plan.ingest_from_url", return_value=_r("NewRecipe", status="untried")), \
+         patch("scripts.generate_plan.save_recipe"):
+        plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
+
+    assert isinstance(plan, MealPlan)
+    # 1 untried + 1 new = 2 assigned nights; plan has 2 days
+    assert len(plan.days) == 2
+    for day in plan.days:
+        assert day.breakfast
+        assert day.lunch
+        assert day.dinner
+
+
+def test_plan_lunches_no_double_leftovers():
+    """Lunch label must never contain 'Leftovers — Leftovers'."""
+    dinners = [
+        "[[Beef Stew]] · American · Medium · 90 min",
+        "Leftovers — Beef Stew",          # big-batch night 1
+        "Leftovers — Beef Stew",          # big-batch night 2
+        "[[Pasta]] · Italian · Easy · 30 min",
+        "[[Tacos]] · Mexican · Easy · 20 min",
+        "[[Salmon]] · Asian · Medium · 25 min",
+        "[[Pizza]] · Italian · Medium · 60 min",
+    ]
+    lunches = _plan_lunches(dinners, dedicated_days=0)
+    assert not any("Leftovers — Leftovers" in l for l in lunches), lunches
+
+
+def test_generate_weekly_plan_claude_bad_url(tmp_path):
+    """If Claude returns a non-URL, the plan is generated without the new recipe."""
+    recipes = (
+        [_r(f"Loved{i}", status="loved") for i in range(8)]
+        + [_r(f"Untried{i}", status="untried") for i in range(4)]
+    )
+    with patch("scripts.generate_plan.find_recipes", return_value=recipes), \
+         patch("scripts.generate_plan._call_claude", return_value="Sorry, I cannot find a recipe."), \
+         patch("scripts.generate_plan.ingest_from_url") as mock_ingest, \
+         patch("scripts.generate_plan.save_recipe"):
+        plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
+
+    mock_ingest.assert_not_called()
+    assert isinstance(plan, MealPlan)
+    # Plan still generated with loved/tried + untried
+    assert len(plan.days) > 0
