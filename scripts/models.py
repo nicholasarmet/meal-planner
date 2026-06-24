@@ -75,7 +75,7 @@ class Recipe:
             f"{n + 1}. {s}" for n, s in enumerate(self.instructions)
         )
         return (
-            f"---\n{yaml.dump(fm, default_flow_style=False, allow_unicode=True)}---\n\n"
+            f"---\n{yaml.dump(fm, default_flow_style=False, allow_unicode=True, sort_keys=False)}---\n\n"
             f"## Ingredients\n{ingredients_block}\n\n"
             f"## Instructions\n{instructions_block}\n\n"
             f"## Notes\n{self.notes}\n"
@@ -87,7 +87,7 @@ def _parse_list_section(body: str, heading: str) -> list[str]:
     if not m:
         return []
     return [
-        line.lstrip("- ").strip()
+        re.sub(r"^-\s*", "", line).strip()
         for line in m.group(1).strip().splitlines()
         if line.strip() and line.strip() != "-"
     ]
