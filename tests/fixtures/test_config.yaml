@@ -1,0 +1,16 @@
+vault_path: "/tmp/test-vault"
+dietary_mode: "normal"
+adults: 2
+child: true
+weekday_effort_limit: "medium"
+dedicated_lunch_days: 2
+new_recipes_per_week: 2
+preferred_cuisines:
+  - asian
+sources:
+  - serious-eats
+  - nom-nom-paleo
+preferences:
+  avoid_raw:
+    - tomato
+  disliked: []
