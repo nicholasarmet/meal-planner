@@ -27,6 +27,9 @@ def save_recipe(recipe: Recipe, vault_path: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     base = _sanitize(recipe.title)
     path = dest / (base + ".md")
+    if path.exists() and recipe.source_name:
+        source_slug = _sanitize(recipe.source_name.replace(".", ""))
+        path = dest / (f"{base}-{source_slug}.md")
     counter = 2
     while path.exists():
         path = dest / (f"{base}-{counter}.md")
