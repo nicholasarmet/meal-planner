@@ -99,7 +99,10 @@ def ingest_from_url(url: str) -> Recipe:
     try:
         from recipe_scrapers import scrape_me
         s = scrape_me(url)
-        raw = f"Title: {s.title()}\nIngredients:\n" + "\n".join(s.ingredients()) + \
+        ingredients = s.ingredients()
+        if not ingredients:
+            raise ValueError("No ingredients found — possible Cloudflare block")
+        raw = f"Title: {s.title()}\nIngredients:\n" + "\n".join(ingredients) + \
               f"\nInstructions:\n" + "\n".join(s.instructions_list()) + \
               f"\nTotal time: {s.total_time()} min\nYields: {s.yields()}"
     except Exception:
