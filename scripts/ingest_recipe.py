@@ -24,7 +24,7 @@ _PROMPT = """You are a recipe parser. Extract the recipe from the text below and
   "cuisine": list[string],
   "meal_type": list[string]  — one or more of: breakfast, lunch, dinner, baking,
   "status": "untried",
-  "effort": "easy" | "medium" | "hard",  — easy: one pan/pot, ≤8 steps, no special technique; medium: multiple methods or components, 9–14 steps, some active attention; hard: 15+ steps, advance prep required, complex technique, or timed multi-component execution,
+  "effort": "easy" | "medium" | "hard",  — easy: one pan/pot, ≤8 steps, no special technique, ≤45 min total; medium: multiple methods or components, 9–14 steps, some active attention, 45–60 min total; hard: 15+ steps, advance prep required, complex technique, timed multi-component execution, or >60 min total when combined with other complexity (time alone does not make a recipe hard),
   "time_active": integer (minutes) or null,
   "time_total": integer (minutes) or null,
   "servings": integer,
