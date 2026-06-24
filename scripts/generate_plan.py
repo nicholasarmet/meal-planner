@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from scripts.config import load_config, get_vault_path
 from scripts.ingest_recipe import ingest_from_url
 from scripts.models import DayPlan, MealPlan, Recipe
+from scripts.search_recipe import search_recipe_urls
 from scripts.vault import find_recipes, save_recipe
 
 load_dotenv()
@@ -174,26 +175,35 @@ def _plan_lunches(dinners: list[str], dedicated_days: int = 2) -> list[str]:
 
 
 def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Recipe | None:
-    sources = ", ".join(config.get("sources", ["serious-eats"]))
     cuisines = ", ".join(config.get("preferred_cuisines", []))
     mode = config.get("dietary_mode", "normal")
+    sources = config.get("sources", [])
     prompt = (
-        f"Find one recipe URL from these sources: {sources}.\n"
+        f"Suggest a dinner recipe search query (3–6 words, no URLs, no site names).\n"
         f"Requirements:\n"
         f"- Dietary mode: {mode}\n"
         f"- Preferred cuisines: {cuisines}\n"
-        f"- Do NOT suggest any of these already-planned recipes: {', '.join(exclude)}\n"
-        f"- Choose a recipe with many reviews and a high rating.\n"
-        f"Return ONLY the full URL, nothing else."
+        f"- Do NOT suggest anything similar to: {', '.join(exclude) or 'nothing'}\n"
+        f"- Pick something varied — rotate through different cuisines and styles.\n"
+        f"Return ONLY the search query. Example: crispy Thai basil chicken"
     )
-    url = _call_claude(prompt).strip()
-    if not url.startswith("http"):
-        print(f"[meal-planner] _source_new_recipe: Claude returned non-URL: {url[:80]!r} — skipping")
+    query = _call_claude(prompt).strip().strip("\"'")
+    if not query:
+        print("[meal-planner] _source_new_recipe: Claude returned empty query — skipping")
         return None
-    recipe = ingest_from_url(url)
-    recipe.status = "untried"
-    save_recipe(recipe, vault_path)
-    return recipe
+
+    urls = search_recipe_urls(query, preferred_sources=sources)
+    for url in urls:
+        try:
+            recipe = ingest_from_url(url)
+            recipe.status = "untried"
+            save_recipe(recipe, vault_path)
+            return recipe
+        except Exception as exc:
+            print(f"[meal-planner] _source_new_recipe: failed to ingest {url[:80]!r}: {exc}")
+            continue
+    print(f"[meal-planner] _source_new_recipe: exhausted {len(urls)} URLs for query {query!r}")
+    return None
 
 
 def generate_weekly_plan(

@@ -181,7 +181,8 @@ def test_generate_weekly_plan_returns_mealplan(tmp_path):
         + [_r(f"Untried{i}", status="untried") for i in range(4)]
     )
     with patch("scripts.generate_plan.find_recipes", return_value=recipes), \
-         patch("scripts.generate_plan._call_claude", return_value="https://example.com/recipe"), \
+         patch("scripts.generate_plan._call_claude", return_value="crispy Thai basil chicken"), \
+         patch("scripts.generate_plan.search_recipe_urls", return_value=["https://example.com/recipe"]), \
          patch("scripts.generate_plan.ingest_from_url", return_value=_r("NewRecipe", status="untried")), \
          patch("scripts.generate_plan.save_recipe"):
         plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
@@ -222,7 +223,8 @@ def test_generate_weekly_plan_sparse_vault(tmp_path):
     """generate_weekly_plan must succeed when the loved/tried pool is empty."""
     recipes = [_r(f"Untried{i}", status="untried") for i in range(3)]
     with patch("scripts.generate_plan.find_recipes", return_value=recipes), \
-         patch("scripts.generate_plan._call_claude", return_value="https://example.com/new"), \
+         patch("scripts.generate_plan._call_claude", return_value="easy weeknight pasta"), \
+         patch("scripts.generate_plan.search_recipe_urls", return_value=["https://example.com/new"]), \
          patch("scripts.generate_plan.ingest_from_url", return_value=_r("NewRecipe", status="untried")), \
          patch("scripts.generate_plan.save_recipe"):
         plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
@@ -267,19 +269,36 @@ def test_plan_lunches_no_double_leftovers_wrap():
     assert not any("Leftovers — Leftovers" in l for l in lunches), lunches
 
 
-def test_generate_weekly_plan_claude_bad_url(tmp_path):
-    """If Claude returns a non-URL, the plan is generated without the new recipe."""
+def test_generate_weekly_plan_search_returns_no_urls(tmp_path):
+    """If search returns no URLs, the plan is generated without the new recipe."""
     recipes = (
         [_r(f"Loved{i}", status="loved") for i in range(8)]
         + [_r(f"Untried{i}", status="untried") for i in range(4)]
     )
     with patch("scripts.generate_plan.find_recipes", return_value=recipes), \
-         patch("scripts.generate_plan._call_claude", return_value="Sorry, I cannot find a recipe."), \
+         patch("scripts.generate_plan._call_claude", return_value="quick weeknight salmon"), \
+         patch("scripts.generate_plan.search_recipe_urls", return_value=[]), \
          patch("scripts.generate_plan.ingest_from_url") as mock_ingest, \
          patch("scripts.generate_plan.save_recipe"):
         plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
 
     mock_ingest.assert_not_called()
     assert isinstance(plan, MealPlan)
-    # Plan still generated with loved/tried + untried
+    assert len(plan.days) > 0
+
+
+def test_generate_weekly_plan_all_urls_fail(tmp_path):
+    """If every search URL fails to ingest, the plan is still generated."""
+    recipes = (
+        [_r(f"Loved{i}", status="loved") for i in range(8)]
+        + [_r(f"Untried{i}", status="untried") for i in range(4)]
+    )
+    with patch("scripts.generate_plan.find_recipes", return_value=recipes), \
+         patch("scripts.generate_plan._call_claude", return_value="miso glazed cod"), \
+         patch("scripts.generate_plan.search_recipe_urls", return_value=["https://a.com/1", "https://b.com/2"]), \
+         patch("scripts.generate_plan.ingest_from_url", side_effect=Exception("fetch failed")), \
+         patch("scripts.generate_plan.save_recipe"):
+        plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
+
+    assert isinstance(plan, MealPlan)
     assert len(plan.days) > 0

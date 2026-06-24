@@ -52,19 +52,30 @@ have enough matches. If the user picks a web recipe, ingests it into the vault a
    - If they pick one: confirm it's in the vault and done (no ingest needed).
    - If they want more: proceed to step 5.
 
-5. **If fewer than 3 vault matches:** search the preferred sources.
+5. **If fewer than 3 vault matches:** search the web using DuckDuckGo.
 
-   Tell the user: "I didn't find many vault matches — let me look at your preferred
-   sources: `<sources list from config>`."
+   Tell the user: "I didn't find many vault matches — searching the web now."
 
-   Using your own knowledge and the sources list, suggest 3 recipe URLs that match the
-   criteria. For each, briefly describe what the recipe is and why it matches.
+   Run a live search using the user's criteria as the query:
+   ```bash
+   cd /home/nickarmet/Desktop/Projects/MealPlanner
+   source venv/bin/activate
+   python -c "
+   import json
+   from scripts.config import load_config
+   from scripts.search_recipe import search_recipe_urls
+   config = load_config()
+   sources = config.get('sources', [])
+   urls = search_recipe_urls('<user criteria as search query>', preferred_sources=sources, max_results=6)
+   print(json.dumps(urls, indent=2))
+   "
+   ```
 
-   If the sources list doesn't contain matches, fall back to high-quality food blogs or
-   publications — prefer recipes with many reviews and high ratings.
+   Present up to 5 results as a numbered list showing: URL domain and page title
+   (derive the title from the URL slug — replace hyphens with spaces).
 
 6. **Present the options.** Show a numbered list of candidates with source site and a
-   one-line description.
+   one-line description derived from the URL slug.
 
 7. **User picks one.** Ingest it:
 
