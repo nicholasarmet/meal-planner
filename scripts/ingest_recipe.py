@@ -103,8 +103,9 @@ def ingest_from_url(url: str) -> Recipe:
               f"\nInstructions:\n" + "\n".join(s.instructions_list()) + \
               f"\nTotal time: {s.total_time()} min\nYields: {s.yields()}"
     except Exception:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; MealPlanner/1.0)"}
-        raw = requests.get(url, headers=headers, timeout=15).text
+        import cloudscraper
+        scraper = cloudscraper.create_scraper()
+        raw = scraper.get(url, timeout=15).text
     return _normalize_with_claude(raw, url, source_name)
 
 

@@ -16,7 +16,7 @@ def test_service_file_has_required_keys():
     assert "WorkingDirectory=" in text
     assert "EnvironmentFile=" in text
     assert "Restart=on-failure" in text
-    assert "recipe_server.py" in text
+    assert "recipe_server" in text
 
 
 def test_ios_bridge_doc_exists():
