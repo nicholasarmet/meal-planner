@@ -94,21 +94,65 @@ def _normalize_with_claude(raw: str, source_url: str | None, source_name: str | 
     )
 
 
-def ingest_from_url(url: str) -> Recipe:
-    source_name = urlparse(url).netloc.replace("www.", "")
+def _is_cf_challenge(html: str) -> bool:
+    lower = html.lower()
+    return (
+        "just a moment" in lower
+        or "cf-browser-verification" in lower
+        or "enable javascript and cookies" in lower
+        or len(html) < 3000
+    )
+
+
+def _playwright_fetch(url: str) -> str:
+    from playwright.sync_api import sync_playwright
+    from playwright_stealth import Stealth
+
+    with Stealth().use_sync(sync_playwright()) as p:
+        browser = p.chromium.launch(headless=True, channel="chrome")
+        try:
+            page = browser.new_page()
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            # inner_text extracts only visible text — avoids sending full HTML to Claude
+            return page.inner_text("body")
+        finally:
+            browser.close()
+
+
+def _fetch_raw(url: str) -> str:
+    # Tier 1: recipe_scrapers — structured, fast, works for most sites
     try:
         from recipe_scrapers import scrape_me
         s = scrape_me(url)
         ingredients = s.ingredients()
-        if not ingredients:
-            raise ValueError("No ingredients found — possible Cloudflare block")
-        raw = f"Title: {s.title()}\nIngredients:\n" + "\n".join(ingredients) + \
-              f"\nInstructions:\n" + "\n".join(s.instructions_list()) + \
-              f"\nTotal time: {s.total_time()} min\nYields: {s.yields()}"
+        if ingredients:
+            return (
+                f"Title: {s.title()}\nIngredients:\n"
+                + "\n".join(ingredients)
+                + f"\nInstructions:\n"
+                + "\n".join(s.instructions_list())
+                + f"\nTotal time: {s.total_time()} min\nYields: {s.yields()}"
+            )
     except Exception:
+        pass
+
+    # Tier 2: cloudscraper — handles basic Cloudflare challenges
+    try:
         import cloudscraper
         scraper = cloudscraper.create_scraper()
-        raw = scraper.get(url, timeout=15).text
+        resp = scraper.get(url, timeout=15)
+        if resp.status_code == 200 and not _is_cf_challenge(resp.text):
+            return resp.text
+    except Exception:
+        pass
+
+    # Tier 3: Playwright + stealth — full JS execution for aggressive CF protection
+    return _playwright_fetch(url)
+
+
+def ingest_from_url(url: str) -> Recipe:
+    source_name = urlparse(url).netloc.replace("www.", "")
+    raw = _fetch_raw(url)
     return _normalize_with_claude(raw, url, source_name)
 
 
