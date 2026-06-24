@@ -188,7 +188,7 @@ def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Re
     )
     url = _call_claude(prompt).strip()
     if not url.startswith("http"):
-        print(f"[meal-planner] _source_new_recipe: Claude returned non-URL: {url!r:.80} — skipping")
+        print(f"[meal-planner] _source_new_recipe: Claude returned non-URL: {url[:80]!r} — skipping")
         return None
     recipe = ingest_from_url(url)
     recipe.status = "untried"

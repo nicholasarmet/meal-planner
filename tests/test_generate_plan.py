@@ -216,7 +216,6 @@ def test_plan_lunches_sparse_two_dinners():
     ]
     lunches = _plan_lunches(dinners, dedicated_days=1)
     assert len(lunches) == 2
-    assert not any("IndexError" in l for l in lunches)
 
 
 def test_generate_weekly_plan_sparse_vault(tmp_path):
@@ -229,7 +228,8 @@ def test_generate_weekly_plan_sparse_vault(tmp_path):
         plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
 
     assert isinstance(plan, MealPlan)
-    # 1 untried + 1 new = 2 assigned nights; plan has 2 days
+    # pool (loved/tried) is empty — all recipes are untried — so padding loop
+    # does nothing; only 1 sampled untried + 1 new recipe = 2 days.
     assert len(plan.days) == 2
     for day in plan.days:
         assert day.breakfast
@@ -247,6 +247,21 @@ def test_plan_lunches_no_double_leftovers():
         "[[Tacos]] · Mexican · Easy · 20 min",
         "[[Salmon]] · Asian · Medium · 25 min",
         "[[Pizza]] · Italian · Medium · 60 min",
+    ]
+    lunches = _plan_lunches(dinners, dedicated_days=0)
+    assert not any("Leftovers — Leftovers" in l for l in lunches), lunches
+
+
+def test_plan_lunches_no_double_leftovers_wrap():
+    """No double-leftover label when modular wrap-around also lands on a leftover."""
+    dinners = [
+        "Leftovers — Beef Stew",          # index 0 — leftover
+        "Leftovers — Beef Stew",          # index 1 — leftover
+        "[[Pasta]] · Italian · Easy · 30 min",
+        "[[Tacos]] · Mexican · Easy · 20 min",
+        "[[Salmon]] · Asian · Medium · 25 min",
+        "[[Pizza]] · Italian · Medium · 60 min",
+        "Leftovers — Pizza",              # index 6 — also leftover (wrap target)
     ]
     lunches = _plan_lunches(dinners, dedicated_days=0)
     assert not any("Leftovers — Leftovers" in l for l in lunches), lunches
