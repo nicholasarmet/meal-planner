@@ -1,0 +1,24 @@
+# UPDATE vault_path before running any script
+vault_path: "/home/nickarmet/path/to/your/obsidian/vault"
+dietary_mode: "normal"           # normal | low-gluten | paleo | whole30
+adults: 2
+child: true
+weekday_effort_limit: "medium"   # hard recipes only on weekends
+dedicated_lunch_days: 2
+new_recipes_per_week: 2
+preferred_cuisines:
+  - asian
+sources:
+  - serious-eats
+  - nom-nom-paleo
+  - bon-appetit
+  - milk-street
+  - nyt-cooking
+  - cooks-country
+  - cooks-illustrated
+  - atk
+  - king-arthur-baking
+preferences:
+  avoid_raw:
+    - tomato
+  disliked: []
