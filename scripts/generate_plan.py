@@ -30,12 +30,12 @@ _BREAKFASTS_WEEKDAY = [
     "Breakfast burrito",
 ]
 _BREAKFASTS_WEEKEND = [
-    "Shakshuka",
     "Frittata",
     "Pancakes",
     "French toast",
     "Baked eggs",
     "Breakfast tacos",
+    "Omelette",
 ]
 _LUNCH_OPTIONS = ["Sandwich day", "Wrap day", "Salad day", "Grain bowl day"]
 
@@ -181,6 +181,8 @@ def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Re
     prompt = (
         f"Suggest a dinner recipe search query (3–6 words, no URLs, no site names).\n"
         f"Requirements:\n"
+        f"- Must be a COMPLETE, well-rounded dinner — a main dish with protein, not a side dish, "
+        f"salad dressing, condiment, sauce, drink, or single vegetable.\n"
         f"- Dietary mode: {mode}\n"
         f"- Preferred cuisines: {cuisines}\n"
         f"- Do NOT suggest anything similar to: {', '.join(exclude) or 'nothing'}\n"

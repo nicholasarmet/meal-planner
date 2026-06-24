@@ -10,6 +10,7 @@ _FOLDER_MAP = {
     "dinner": "Recipes/Dinner",
     "baking": "Recipes/Baking",
     "snack": "Recipes/Snacks",
+    "side": "Recipes/Sides",
 }
 
 
