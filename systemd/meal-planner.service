@@ -1,0 +1,17 @@
+[Unit]
+Description=Meal Planner Recipe Server
+After=network.target
+
+[Service]
+Type=simple
+User=nickarmet
+WorkingDirectory=/home/nickarmet/Desktop/Projects/MealPlanner
+EnvironmentFile=/home/nickarmet/Desktop/Projects/MealPlanner/.env
+ExecStart=/home/nickarmet/Desktop/Projects/MealPlanner/venv/bin/python scripts/recipe_server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
