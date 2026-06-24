@@ -23,7 +23,12 @@ def save_recipe(recipe: Recipe, vault_path: Path) -> Path:
     folder = _FOLDER_MAP.get(key, "Recipes/Dinner")
     dest = vault_path / folder
     dest.mkdir(parents=True, exist_ok=True)
-    path = dest / (_sanitize(recipe.title) + ".md")
+    base = _sanitize(recipe.title)
+    path = dest / (base + ".md")
+    counter = 2
+    while path.exists():
+        path = dest / (f"{base}-{counter}.md")
+        counter += 1
     path.write_text(recipe.to_markdown(), encoding="utf-8")
     return path
 

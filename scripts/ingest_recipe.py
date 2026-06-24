@@ -59,7 +59,13 @@ def _parse_json(text: str) -> dict:
     m = re.search(r"```(?:json)?\n(.*?)\n```", text, re.DOTALL)
     if m:
         text = m.group(1)
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
+            return json.loads(m.group())
+        raise ValueError(f"Could not parse JSON from Claude response: {text[:200]}")
 
 
 def _normalize_with_claude(raw: str, source_url: str | None, source_name: str | None) -> Recipe:

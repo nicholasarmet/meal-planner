@@ -58,3 +58,10 @@ def test_ingest_from_text_passes_source_hint():
         ingest_from_text("recipe text", source_hint="My Cookbook")
     prompt = mock.call_args[0][0]
     assert "My Cookbook" in prompt
+
+
+def test_parse_json_handles_prose_prefix():
+    from scripts.ingest_recipe import _parse_json
+    text = 'Here is the recipe: {"title": "Tacos", "ingredients": [], "instructions": []}'
+    result = _parse_json(text)
+    assert result["title"] == "Tacos"

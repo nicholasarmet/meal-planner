@@ -69,3 +69,14 @@ def test_save_sanitizes_filename(tmp_vault):
     path = save_recipe(_recipe(title="Chicken & Rice: Classic!", meal_type=["dinner"]), tmp_vault)
     assert "&" not in path.name
     assert ":" not in path.name
+
+
+def test_save_recipe_deduplicates_on_collision(tmp_path):
+    r1 = Recipe(title="Tacos", meal_type=["dinner"])
+    r2 = Recipe(title="Tacos", meal_type=["dinner"])
+    p1 = save_recipe(r1, tmp_path)
+    p2 = save_recipe(r2, tmp_path)
+    assert p1 != p2
+    assert p1.exists()
+    assert p2.exists()
+    assert p2.stem == p1.stem + "-2"

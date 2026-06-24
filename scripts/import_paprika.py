@@ -51,14 +51,16 @@ def paprika_to_recipe(raw: dict) -> Recipe:
 def _run(paprikarecipes: Path, vault_path: Path, dry_run: bool = False) -> int:
     raws = parse_paprika_export(paprikarecipes)
     print(f"Found {len(raws)} recipes in {paprikarecipes.name}")
+    written: list[Path] = []
     for i, raw in enumerate(raws, 1):
         recipe = paprika_to_recipe(raw)
         if not dry_run:
-            save_recipe(recipe, vault_path)
+            written.append(save_recipe(recipe, vault_path))
         if i % 50 == 0:
             print(f"  {i}/{len(raws)}...")
-    print(f"Done. {'Dry run — ' if dry_run else ''}Imported {len(raws)} recipes.")
-    return len(raws)
+    count = len(written) if not dry_run else len(raws)
+    print(f"Done. {'Dry run — ' if dry_run else ''}Imported {count} recipes.")
+    return count
 
 
 if __name__ == "__main__":

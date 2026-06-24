@@ -105,5 +105,10 @@ def _parse_numbered_section(body: str, heading: str) -> list[str]:
 
 
 def _parse_text_section(body: str, heading: str) -> str:
-    m = re.search(rf"## {heading}\n(.*?)(?=\n## |\Z)", body, re.DOTALL)
+    # Notes is always the last section, so we match to end-of-document only.
+    # This preserves any ## subheadings that may appear inside the notes body.
+    if heading == "Notes":
+        m = re.search(rf"## {heading}\n(.*?)(?=\Z)", body, re.DOTALL)
+    else:
+        m = re.search(rf"## {heading}\n(.*?)(?=\n## |\Z)", body, re.DOTALL)
     return m.group(1).strip() if m else ""
