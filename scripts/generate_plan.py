@@ -115,6 +115,15 @@ def _contains_disliked(recipe: Recipe, disliked: list[str]) -> bool:
     return any(d.lower() in combined for d in disliked)
 
 
+_SOUP_KEYWORDS = ("soup", "stew", "chowder", "bisque", "broth", "chili", "ramen", "pho")
+_SUMMER_MONTHS = (6, 7, 8)
+
+
+def _is_soup(recipe: Recipe) -> bool:
+    combined = (recipe.title + " " + " ".join(recipe.ingredients[:6])).lower()
+    return any(k in combined for k in _SOUP_KEYWORDS)
+
+
 def _filter_dinner_pool(
     recipes: list[Recipe],
     config: dict,
@@ -124,6 +133,7 @@ def _filter_dinner_pool(
     ref = reference_date or date.today()
     cutoff = ref - timedelta(weeks=4)
     disliked = config.get("preferences", {}).get("disliked", [])
+    is_summer = ref.month in _SUMMER_MONTHS
     result = []
     for r in recipes:
         if r.status not in ("loved", "tried"):
@@ -131,6 +141,8 @@ def _filter_dinner_pool(
         if mode != "normal" and mode not in r.dietary:
             continue
         if _contains_disliked(r, disliked):
+            continue
+        if is_summer and _is_soup(r):
             continue
         if r.last_made:
             try:
@@ -380,9 +392,12 @@ def generate_weekly_plan(
     overloaded = [p for p, n in current_proteins.items() if n >= 2]
 
     # 1 untried from vault — prefer proteins not already at the cap
+    is_summer = week_start.month in _SUMMER_MONTHS
     untried_pool = [
         r for r in all_dinner_recipes
-        if r.status == "untried" and not _contains_disliked(r, disliked)
+        if r.status == "untried"
+        and not _contains_disliked(r, disliked)
+        and not (is_summer and _is_soup(r))
     ]
     preferred_untried = [r for r in untried_pool if _detect_protein(r) not in overloaded]
     untried_candidate = preferred_untried if preferred_untried else untried_pool

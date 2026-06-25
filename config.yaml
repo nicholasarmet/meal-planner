@@ -1,5 +1,5 @@
 # UPDATE vault_path before running any script
-vault_path: "/home/nickarmet/path/to/your/obsidian/vault"
+vault_path: "/home/nickarmet/Documents/Recipes"
 dietary_mode: "normal"           # normal | low-gluten | paleo | whole30
 adults: 2
 child: true
@@ -19,6 +19,8 @@ sources:
   - atk
   - king-arthur-baking
 preferences:
-  avoid_raw:
+  avoid_raw: []
+  disliked:
     - tomato
-  disliked: []
+    - fish
+    - clam
