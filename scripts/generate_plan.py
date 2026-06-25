@@ -548,9 +548,13 @@ def generate_weekly_plan(
             prev_title = assigned[i - 1].title
             dinner_strings[day] = f"Leftovers — {_recipe_link(prev_title)}"
         else:
-            cuisine = ", ".join(r.cuisine) if r.cuisine else "—"
-            timing = f"{r.time_total} min" if r.time_total else "—"
-            dinner_strings[day] = f"{_recipe_link(r.title)} · {cuisine} · {r.effort.capitalize()} · {timing}"
+            parts = [_recipe_link(r.title)]
+            if r.cuisine:
+                parts.append(", ".join(r.cuisine))
+            parts.append(r.effort.capitalize())
+            if r.time_total:
+                parts.append(f"{r.time_total} min")
+            dinner_strings[day] = " · ".join(parts)
 
     raw_breakfasts = _plan_breakfasts(week_start, vault_path=vault_path)
     breakfasts = [_recipe_link(b) for b in raw_breakfasts]
