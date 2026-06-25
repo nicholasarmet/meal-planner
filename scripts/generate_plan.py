@@ -15,7 +15,7 @@ from scripts.config import load_config, get_vault_path
 from scripts.ingest_recipe import ingest_from_url
 from scripts.models import DayPlan, MealPlan, Recipe
 from scripts.search_recipe import search_recipe_urls
-from scripts.vault import find_recipes, save_recipe
+from scripts.vault import find_recipe_paths, find_recipes, save_recipe
 
 load_dotenv()
 
@@ -387,16 +387,28 @@ def _plan_lunches(dinners: list[str], dedicated_days: int = 2) -> list[str]:
         else:
             prev_idx = (i - 1) % len(dinners)
             prev = dinners[prev_idx]
-            title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", prev).strip()
+            # Extract plain title from either "[Title](path)" or "[[Title]]" or raw text
+            def _plain(s: str) -> str:
+                m = re.match(r"\[([^\]]+)\]\([^)]+\)", s)
+                if m:
+                    return m.group(1)
+                m = re.search(r"\[\[([^\]]+)\]\]", s)
+                if m:
+                    return m.group(1)
+                return s.split(" · ")[0].strip()
+
+            title = _plain(prev)
+            link = prev.split(" · ")[0].strip()  # preserve the link markup for lunch line
+
             # Look back past leftovers AND eat-out nights to find a real dinner
             if title.startswith("Leftovers") or title == _EAT_OUT:
                 for k in range(2, len(dinners) + 1):
                     candidate = dinners[(i - k) % len(dinners)]
-                    candidate_title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", candidate).strip()
+                    candidate_title = _plain(candidate)
                     if not candidate_title.startswith("Leftovers") and candidate_title != _EAT_OUT:
-                        title = candidate_title
+                        link = candidate.split(" · ")[0].strip()
                         break
-            lunches.append(f"Leftovers — {title}")
+            lunches.append(f"Leftovers — {link}")
     return lunches
 
 
@@ -452,6 +464,20 @@ def generate_weekly_plan(
 ) -> MealPlan:
     week_start = week_of or _next_sunday()
     week_str = week_start.isoformat()
+
+    # Build title→path lookup for all recipes so we can produce markdown links
+    _all_recipe_paths: dict[str, Path] = {
+        r.title: p for p, r in find_recipe_paths(vault_path)
+    }
+
+    def _recipe_link(title: str) -> str:
+        """Return a markdown link to the recipe file, or plain title if not found."""
+        path = _all_recipe_paths.get(title)
+        if path:
+            # Plan lives at <vault>/Meal Plans/…, so recipes are one level up
+            rel = f"../{path.relative_to(vault_path)}"
+            return f"[{title}]({rel})"
+        return title
 
     all_dinner_recipes = find_recipes(vault_path, meal_type="dinner")
     disliked = config.get("preferences", {}).get("disliked", [])
@@ -520,13 +546,14 @@ def generate_weekly_plan(
         day = day_slots[i]
         if day in leftover_day_slots:
             prev_title = assigned[i - 1].title
-            dinner_strings[day] = f"Leftovers — {prev_title}"
+            dinner_strings[day] = f"Leftovers — {_recipe_link(prev_title)}"
         else:
             cuisine = ", ".join(r.cuisine) if r.cuisine else "—"
             timing = f"{r.time_total} min" if r.time_total else "—"
-            dinner_strings[day] = f"[[{r.title}]] · {cuisine} · {r.effort.capitalize()} · {timing}"
+            dinner_strings[day] = f"{_recipe_link(r.title)} · {cuisine} · {r.effort.capitalize()} · {timing}"
 
-    breakfasts = _plan_breakfasts(week_start, vault_path=vault_path)
+    raw_breakfasts = _plan_breakfasts(week_start, vault_path=vault_path)
+    breakfasts = [_recipe_link(b) for b in raw_breakfasts]
     lunches = _plan_lunches(dinner_strings, dedicated_days=config.get("dedicated_lunch_days", 2))
 
     days = [

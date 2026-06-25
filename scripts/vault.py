@@ -97,3 +97,26 @@ def find_recipes(
             continue
         results.append(r)
     return results
+
+
+def find_recipe_paths(
+    vault_path: Path,
+    meal_type: str | None = None,
+    status: str | None = None,
+) -> list[tuple[Path, Recipe]]:
+    """Like find_recipes but also returns each recipe's file path."""
+    root = vault_path / "Recipes"
+    if not root.exists():
+        return []
+    results = []
+    for md in root.rglob("*.md"):
+        try:
+            r = load_recipe(md)
+        except Exception:
+            continue
+        if meal_type and meal_type.lower() not in [m.lower() for m in r.meal_type]:
+            continue
+        if status and r.status != status:
+            continue
+        results.append((md, r))
+    return results
