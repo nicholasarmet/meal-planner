@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -55,6 +56,56 @@ def _next_sunday(ref: date | None = None) -> date:
     d = ref or date.today()
     days_ahead = (6 - d.weekday()) % 7
     return d + timedelta(days=days_ahead)
+
+
+def _detect_protein(recipe: Recipe) -> str:
+    combined = (recipe.title + " " + " ".join(recipe.ingredients[:10])).lower()
+    if any(k in combined for k in ("chicken", "poultry", "turkey", "duck")):
+        return "poultry"
+    if any(k in combined for k in ("beef", "steak", "brisket", "chuck", "sirloin", "ribeye", "ground beef", "short rib")):
+        return "beef"
+    if any(k in combined for k in ("pork", "bacon", "ham", "prosciutto", "sausage", "chorizo", "carnitas")):
+        return "pork"
+    if any(k in combined for k in ("lamb", "mutton")):
+        return "lamb"
+    if any(k in combined for k in ("salmon", "tuna", "cod", "shrimp", "scallop", "seafood", "halibut", "tilapia", "mahi")):
+        return "seafood"
+    return "other"
+
+
+def _enforce_protein_diversity(
+    recipes: list[Recipe],
+    spare_pool: list[Recipe],
+    max_per_protein: int = 2,
+) -> list[Recipe]:
+    result = list(recipes)
+    protein_counts = Counter(_detect_protein(r) for r in result)
+    over_limit = {p for p, n in protein_counts.items() if n > max_per_protein}
+    if not over_limit:
+        return result
+
+    # Mark slots beyond the limit for replacement (keep the first N)
+    seen: Counter[str] = Counter()
+    to_replace: list[int] = []
+    for i, r in enumerate(result):
+        p = _detect_protein(r)
+        seen[p] += 1
+        if p in over_limit and seen[p] > max_per_protein:
+            to_replace.append(i)
+
+    already_selected = {id(r) for r in result}
+    spares = [r for r in spare_pool if id(r) not in already_selected]
+
+    for idx in to_replace:
+        current_counts = Counter(_detect_protein(r) for r in result)
+        for j, spare in enumerate(spares):
+            if current_counts[_detect_protein(spare)] < max_per_protein:
+                result[idx] = spare
+                spares.pop(j)
+                already_selected.add(id(spare))
+                break
+
+    return result
 
 
 def _contains_disliked(recipe: Recipe, disliked: list[str]) -> bool:
@@ -117,7 +168,7 @@ def _validate_lineup(
         f"1. Any entry that is NOT a complete, well-rounded dinner "
         f"(must have protein + built-in components — not a side dish, salad dressing, "
         f"condiment, drink, or rice/grain preparation)\n"
-        f"2. The same main protein appearing more than 3 nights\n"
+        f"2. The same main protein appearing more than 2 nights\n"
         f"3. The same cuisine appearing more than 3 nights\n"
         f"4. Any recipe likely to contain a disliked ingredient based on the key ingredients shown\n\n"
         f"If everything looks good, return: {{\"ok\": true}}\n"
@@ -144,13 +195,20 @@ def _validate_lineup(
     return recipes
 
 
-def _weighted_select(recipes: list[Recipe], n: int, seed: int | None = None) -> list[Recipe]:
+def _weighted_select(
+    recipes: list[Recipe],
+    n: int,
+    seed: int | None = None,
+    max_per_protein: int | None = None,
+) -> list[Recipe]:
     if not recipes:
         return []
     n = min(n, len(recipes))
     rng = random.Random(seed)
     pool = [(r.rating if r.rating else 3, r) for r in recipes]
     selected: list[Recipe] = []
+    protein_counts: Counter[str] = Counter()
+
     while len(selected) < n and pool:
         total = sum(w for w, _ in pool)
         pick = rng.uniform(0, total)
@@ -158,9 +216,28 @@ def _weighted_select(recipes: list[Recipe], n: int, seed: int | None = None) -> 
         for i, (w, r) in enumerate(pool):
             cumulative += w
             if cumulative >= pick:
-                selected.append(r)
                 pool.pop(i)
+                p = _detect_protein(r)
+                if max_per_protein is None or protein_counts[p] < max_per_protein:
+                    selected.append(r)
+                    protein_counts[p] += 1
+                # if over cap, recipe is discarded and we try again next iteration
                 break
+
+    # Fallback: if protein cap made us short, fill remaining without cap
+    if len(selected) < n and pool:
+        remaining = [(w, r) for w, r in pool if r not in selected]
+        while len(selected) < n and remaining:
+            total = sum(w for w, _ in remaining)
+            pick = rng.uniform(0, total)
+            cumulative = 0.0
+            for i, (w, r) in enumerate(remaining):
+                cumulative += w
+                if cumulative >= pick:
+                    selected.append(r)
+                    remaining.pop(i)
+                    break
+
     return selected
 
 
@@ -238,10 +315,20 @@ def _plan_lunches(dinners: list[str], dedicated_days: int = 2) -> list[str]:
     return lunches
 
 
-def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Recipe | None:
+def _source_new_recipe(
+    config: dict,
+    vault_path: Path,
+    exclude: list[str],
+    avoid_proteins: list[str] | None = None,
+) -> Recipe | None:
     cuisines = ", ".join(config.get("preferred_cuisines", []))
     mode = config.get("dietary_mode", "normal")
     sources = config.get("sources", [])
+    avoid_str = (
+        f"- Avoid recipes whose main protein is: {', '.join(avoid_proteins)} "
+        f"(already on the menu this week)\n"
+        if avoid_proteins else ""
+    )
     prompt = (
         f"Suggest a dinner recipe search query (3–6 words, no URLs, no site names).\n"
         f"Requirements:\n"
@@ -249,6 +336,7 @@ def _source_new_recipe(config: dict, vault_path: Path, exclude: list[str]) -> Re
         f"salad dressing, condiment, sauce, drink, or single vegetable.\n"
         f"- Dietary mode: {mode}\n"
         f"- Preferred cuisines: {cuisines}\n"
+        f"{avoid_str}"
         f"- Do NOT suggest anything similar to: {', '.join(exclude) or 'nothing'}\n"
         f"- Pick something varied — rotate through different cuisines and styles.\n"
         f"Return ONLY the search query. Example: crispy Thai basil chicken"
@@ -283,29 +371,49 @@ def generate_weekly_plan(
     all_dinner_recipes = find_recipes(vault_path, meal_type="dinner")
     disliked = config.get("preferences", {}).get("disliked", [])
 
-    # 5 loved/tried (weighted by rating)
+    # 5 loved/tried (weighted by rating, max 2 of any protein)
     pool = _filter_dinner_pool(all_dinner_recipes, config, reference_date=week_start)
-    loved_tried = _weighted_select(pool, n=5)
+    loved_tried = _weighted_select(pool, n=5, max_per_protein=2)
 
-    # 1 untried from vault — also filter disliked
+    # Track proteins already committed so untried + new recipe add variety
+    current_proteins = Counter(_detect_protein(r) for r in loved_tried)
+    overloaded = [p for p, n in current_proteins.items() if n >= 2]
+
+    # 1 untried from vault — prefer proteins not already at the cap
     untried_pool = [
         r for r in all_dinner_recipes
         if r.status == "untried" and not _contains_disliked(r, disliked)
     ]
-    untried = random.sample(untried_pool, 1) if untried_pool else []
+    preferred_untried = [r for r in untried_pool if _detect_protein(r) not in overloaded]
+    untried_candidate = preferred_untried if preferred_untried else untried_pool
+    untried = random.sample(untried_candidate, 1) if untried_candidate else []
 
-    # 1 new from web via Claude
+    # 1 new from web via Claude — pass overloaded proteins so the query avoids them
     exclude_titles = [r.title for r in loved_tried + untried]
-    new_recipe = _source_new_recipe(config, vault_path, exclude_titles)
+    new_recipe = _source_new_recipe(config, vault_path, exclude_titles, avoid_proteins=overloaded if overloaded else None)
 
     all_seven = (loved_tried + untried + ([new_recipe] if new_recipe else []))[:7]
     # Pad if vault is sparse (e.g. brand new install)
     while len(all_seven) < 7 and pool:
         all_seven.append(pool[len(all_seven) % len(pool)])
 
-    # Validate and swap out any incoherent selections
-    spare_pool = [r for r in pool if r not in all_seven]
+    # Enforce protein diversity across all 7 — use both remaining loved/tried and untried as spares
+    selected_ids = {id(r) for r in all_seven}
+    broad_spares = (
+        [r for r in pool if id(r) not in selected_ids]
+        + [r for r in untried_pool if id(r) not in selected_ids]
+    )
+    all_seven = _enforce_protein_diversity(all_seven, broad_spares, max_per_protein=2)
+
+    # Claude coherence check with updated spare pool
+    selected_ids = {id(r) for r in all_seven}
+    spare_pool = [r for r in broad_spares if id(r) not in selected_ids]
     all_seven = _validate_lineup(all_seven, spare_pool, config)
+
+    # Re-enforce after Claude's pass (it swaps blindly and can reintroduce the same protein)
+    selected_ids = {id(r) for r in all_seven}
+    remaining_spares = [r for r in broad_spares if id(r) not in selected_ids]
+    all_seven = _enforce_protein_diversity(all_seven, remaining_spares, max_per_protein=2)
 
     assigned = _assign_to_nights(all_seven)
 
