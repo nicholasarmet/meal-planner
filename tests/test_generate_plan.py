@@ -96,9 +96,10 @@ def test_weighted_select_fewer_than_n_returns_all():
 
 # ── _assign_to_nights ─────────────────────────────────────────────────────────
 
-def test_assign_to_nights_returns_7():
-    recipes = [_r(str(i)) for i in range(7)]
-    assert len(_assign_to_nights(recipes)) == 7
+def test_assign_to_nights_returns_6():
+    # Friday is eat-out; _assign_to_nights fills the other 6 slots
+    recipes = [_r(str(i)) for i in range(6)]
+    assert len(_assign_to_nights(recipes)) == 6
 
 
 def test_assign_to_nights_hard_on_weekend():
@@ -189,7 +190,7 @@ def test_generate_weekly_plan_returns_mealplan(tmp_path):
 
     assert isinstance(plan, MealPlan)
     assert plan.week_of == "2026-06-29"
-    assert len(plan.days) == 7
+    assert len(plan.days) == 7  # all 7 days, Friday dinner = "Eat out"
     assert plan.days[0].weekday == "Sunday"
     assert plan.days[6].weekday == "Saturday"
     for day in plan.days:
@@ -230,13 +231,15 @@ def test_generate_weekly_plan_sparse_vault(tmp_path):
         plan = generate_weekly_plan(_make_config(), tmp_path, week_of=date(2026, 6, 29))
 
     assert isinstance(plan, MealPlan)
-    # pool (loved/tried) is empty — all recipes are untried — so padding loop
-    # does nothing; only 1 sampled untried + 1 new recipe = 2 days.
-    assert len(plan.days) == 2
+    # Plan always has 7 days; Friday dinner = "Eat out"; sparse slots may be empty strings.
+    assert len(plan.days) == 7
+    friday = plan.days[5]
+    assert friday.weekday == "Friday"
+    assert friday.dinner == "Eat out"
+    # Every day still has a breakfast and lunch
     for day in plan.days:
         assert day.breakfast
         assert day.lunch
-        assert day.dinner
 
 
 def test_plan_lunches_no_double_leftovers():

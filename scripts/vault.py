@@ -4,6 +4,34 @@ from pathlib import Path
 
 from scripts.models import Recipe
 
+
+def _title_words(title: str) -> set[str]:
+    return set(re.sub(r"[^\w\s]", "", title.lower()).split())
+
+
+def _is_duplicate(recipe: Recipe, vault_path: Path) -> Path | None:
+    """Return path of an existing recipe that is substantially the same, or None."""
+    root = vault_path / "Recipes"
+    if not root.exists():
+        return None
+    new_words = _title_words(recipe.title)
+    for md in root.rglob("*.md"):
+        try:
+            existing = load_recipe(md)
+        except Exception:
+            continue
+        # Exact source URL match
+        if recipe.source_url and existing.source_url and recipe.source_url == existing.source_url:
+            return md
+        # Same source domain + highly similar title (≥75% word overlap by Jaccard)
+        if recipe.source_name and existing.source_name and recipe.source_name == existing.source_name:
+            ex_words = _title_words(existing.title)
+            if new_words and ex_words:
+                overlap = len(new_words & ex_words) / len(new_words | ex_words)
+                if overlap >= 0.75:
+                    return md
+    return None
+
 _FOLDER_MAP = {
     "breakfast": "Recipes/Breakfast",
     "lunch": "Recipes/Lunch",
@@ -23,6 +51,11 @@ def _sanitize(title: str) -> str:
 
 
 def save_recipe(recipe: Recipe, vault_path: Path) -> Path:
+    existing = _is_duplicate(recipe, vault_path)
+    if existing:
+        print(f"[vault] duplicate detected, skipping save: '{recipe.title}' matches '{existing.name}'")
+        return existing
+
     key = (recipe.meal_type[0].lower() if recipe.meal_type else "dinner")
     folder = _FOLDER_MAP.get(key, "Recipes/Dinner")
     dest = vault_path / folder

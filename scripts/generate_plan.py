@@ -28,7 +28,6 @@ _BREAKFASTS_WEEKDAY = [
     "Smoothie",
     "Yogurt parfait",
     "Avocado toast",
-    "Hard-boiled eggs",
     "Breakfast burrito",
 ]
 _BREAKFASTS_WEEKEND = [
@@ -59,10 +58,13 @@ def _next_sunday(ref: date | None = None) -> date:
 
 
 def _detect_protein(recipe: Recipe) -> str:
-    combined = (recipe.title + " " + " ".join(recipe.ingredients[:10])).lower()
+    combined = (recipe.title + " " + " ".join(recipe.ingredients[:15])).lower()
     if any(k in combined for k in ("chicken", "poultry", "turkey", "duck")):
         return "poultry"
-    if any(k in combined for k in ("beef", "steak", "brisket", "chuck", "sirloin", "ribeye", "ground beef", "short rib")):
+    if any(k in combined for k in (
+        "beef", "steak", "brisket", "chuck", "sirloin", "ribeye",
+        "ground beef", "short rib", "meatloaf", "burger", "bulgogi", "gyudon",
+    )):
         return "beef"
     if any(k in combined for k in ("pork", "bacon", "ham", "prosciutto", "sausage", "chorizo", "carnitas")):
         return "pork"
@@ -118,10 +120,33 @@ def _contains_disliked(recipe: Recipe, disliked: list[str]) -> bool:
 _SOUP_KEYWORDS = ("soup", "stew", "chowder", "bisque", "broth", "chili", "ramen", "pho")
 _SUMMER_MONTHS = (6, 7, 8)
 
+# keyword → months when the recipe is appropriate (None means wraps across year-end)
+_HOLIDAY_WINDOWS: dict[str, tuple[int, ...]] = {
+    "thanksgiving": (11,),
+    "christmas": (12,),
+    "xmas": (12,),
+    "easter": (3, 4),
+    "halloween": (10,),
+    "new year": (12, 1),
+    "4th of july": (7,),
+    "independence day": (7,),
+    "valentine": (2,),
+    "st. patrick": (3,),
+    "st patrick": (3,),
+}
+
 
 def _is_soup(recipe: Recipe) -> bool:
     combined = (recipe.title + " " + " ".join(recipe.ingredients[:6])).lower()
     return any(k in combined for k in _SOUP_KEYWORDS)
+
+
+def _is_holiday_mismatch(recipe: Recipe, month: int) -> bool:
+    title = recipe.title.lower()
+    for keyword, valid_months in _HOLIDAY_WINDOWS.items():
+        if keyword in title:
+            return month not in valid_months
+    return False
 
 
 def _filter_dinner_pool(
@@ -134,6 +159,7 @@ def _filter_dinner_pool(
     cutoff = ref - timedelta(weeks=4)
     disliked = config.get("preferences", {}).get("disliked", [])
     is_summer = ref.month in _SUMMER_MONTHS
+    month = ref.month
     result = []
     for r in recipes:
         if r.status not in ("loved", "tried"):
@@ -143,6 +169,8 @@ def _filter_dinner_pool(
         if _contains_disliked(r, disliked):
             continue
         if is_summer and _is_soup(r):
+            continue
+        if _is_holiday_mismatch(r, month):
             continue
         if r.last_made:
             try:
@@ -253,12 +281,17 @@ def _weighted_select(
     return selected
 
 
+_FRIDAY = 5  # 0=Sun … 6=Sat
+_EAT_OUT = "Eat out"
+
+
 def _assign_to_nights(recipes: list[Recipe]) -> list[Recipe]:
+    """Assign recipes to the 6 non-Friday dinner slots (Sun–Thu + Sat)."""
     hard = [r for r in recipes if r.effort == "hard"]
     soft = [r for r in recipes if r.effort != "hard"]
     slots: list[Recipe | None] = [None] * 7
     weekend_slots = [0, 6]
-    weekday_slots = list(range(1, 6))
+    weekday_slots = [i for i in range(1, 6) if i != _FRIDAY]  # Mon–Thu only
 
     for i, r in enumerate(hard):
         if i < len(weekend_slots):
@@ -287,21 +320,60 @@ def _assign_to_nights(recipes: list[Recipe]) -> list[Recipe]:
     return result
 
 
-def _plan_breakfasts(week_of: date, seed: int | None = None) -> list[str]:
+def _plan_breakfasts(
+    week_of: date,
+    vault_path: Path | None = None,
+    seed: int | None = None,
+) -> list[str]:
     rng = random.Random(seed)
     breakfasts: list[str] = []
     egg_streak = 0
+    used_weekend: list[str] = []
+    used_weekday: list[str] = []
+
+    # Occasionally substitute a vault breakfast recipe (weekend ~40%, weekday ~10%)
+    vault_breakfast_titles: list[str] = []
+    if vault_path:
+        from scripts.vault import find_recipes as _find
+        vault_breakfasts = _find(vault_path, meal_type="breakfast")
+        vault_breakfast_titles = [r.title for r in vault_breakfasts]
+
+    used_vault: list[str] = []
+
+    def _pick_vault_breakfast() -> str | None:
+        available = [t for t in vault_breakfast_titles if t not in used_vault]
+        if not available:
+            return None
+        pick = rng.choice(available)
+        used_vault.append(pick)
+        return pick
+
     for i in range(7):
-        if i in (0, 6):  # Sunday, Saturday
-            breakfasts.append(rng.choice(_BREAKFASTS_WEEKEND))
+        if i in (0, 6):  # Sunday, Saturday — higher chance of vault recipe
+            if vault_breakfast_titles and rng.random() < 0.4:
+                choice = _pick_vault_breakfast() or rng.choice(_BREAKFASTS_WEEKEND)
+            else:
+                pool = [b for b in _BREAKFASTS_WEEKEND if b not in used_weekend]
+                if not pool:
+                    pool = list(_BREAKFASTS_WEEKEND)
+                choice = rng.choice(pool)
+            if choice in _BREAKFASTS_WEEKEND:
+                used_weekend.append(choice)
             egg_streak = 0
         else:
-            pool = list(_BREAKFASTS_WEEKDAY)
-            if egg_streak >= 3:
-                pool = [b for b in pool if "egg" not in b.lower()]
-            choice = rng.choice(pool) if pool else "Yogurt parfait"
+            if vault_breakfast_titles and rng.random() < 0.1:
+                choice = _pick_vault_breakfast() or rng.choice(_BREAKFASTS_WEEKDAY)
+            else:
+                pool = [b for b in _BREAKFASTS_WEEKDAY if b not in used_weekday]
+                if not pool:
+                    pool = list(_BREAKFASTS_WEEKDAY)
+                if egg_streak >= 2:
+                    pool = [b for b in pool if "egg" not in b.lower()] or pool
+                choice = rng.choice(pool) if pool else "Yogurt parfait"
+            if choice in _BREAKFASTS_WEEKDAY:
+                used_weekday.append(choice)
             egg_streak = egg_streak + 1 if "egg" in choice.lower() else 0
-            breakfasts.append(choice)
+        breakfasts.append(choice)
     return breakfasts
 
 
@@ -316,11 +388,12 @@ def _plan_lunches(dinners: list[str], dedicated_days: int = 2) -> list[str]:
             prev_idx = (i - 1) % len(dinners)
             prev = dinners[prev_idx]
             title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", prev).strip()
-            if title.startswith("Leftovers"):
+            # Look back past leftovers AND eat-out nights to find a real dinner
+            if title.startswith("Leftovers") or title == _EAT_OUT:
                 for k in range(2, len(dinners) + 1):
                     candidate = dinners[(i - k) % len(dinners)]
                     candidate_title = re.sub(r"\[\[([^\]]+)\]\].*", r"\1", candidate).strip()
-                    if not candidate_title.startswith("Leftovers"):
+                    if not candidate_title.startswith("Leftovers") and candidate_title != _EAT_OUT:
                         title = candidate_title
                         break
             lunches.append(f"Leftovers — {title}")
@@ -393,11 +466,13 @@ def generate_weekly_plan(
 
     # 1 untried from vault — prefer proteins not already at the cap
     is_summer = week_start.month in _SUMMER_MONTHS
+    month = week_start.month
     untried_pool = [
         r for r in all_dinner_recipes
         if r.status == "untried"
         and not _contains_disliked(r, disliked)
         and not (is_summer and _is_soup(r))
+        and not _is_holiday_mismatch(r, month)
     ]
     preferred_untried = [r for r in untried_pool if _detect_protein(r) not in overloaded]
     untried_candidate = preferred_untried if preferred_untried else untried_pool
@@ -407,53 +482,56 @@ def generate_weekly_plan(
     exclude_titles = [r.title for r in loved_tried + untried]
     new_recipe = _source_new_recipe(config, vault_path, exclude_titles, avoid_proteins=overloaded if overloaded else None)
 
-    all_seven = (loved_tried + untried + ([new_recipe] if new_recipe else []))[:7]
-    # Pad if vault is sparse (e.g. brand new install)
-    while len(all_seven) < 7 and pool:
-        all_seven.append(pool[len(all_seven) % len(pool)])
+    # 6 dinners — Friday is always eat-out
+    all_six = (loved_tried + untried + ([new_recipe] if new_recipe else []))[:6]
+    while len(all_six) < 6 and pool:
+        all_six.append(pool[len(all_six) % len(pool)])
 
-    # Enforce protein diversity across all 7 — use both remaining loved/tried and untried as spares
-    selected_ids = {id(r) for r in all_seven}
+    # Enforce protein diversity across all 6
+    selected_ids = {id(r) for r in all_six}
     broad_spares = (
         [r for r in pool if id(r) not in selected_ids]
         + [r for r in untried_pool if id(r) not in selected_ids]
     )
-    all_seven = _enforce_protein_diversity(all_seven, broad_spares, max_per_protein=2)
+    all_six = _enforce_protein_diversity(all_six, broad_spares, max_per_protein=2)
 
-    # Claude coherence check with updated spare pool
-    selected_ids = {id(r) for r in all_seven}
+    # Claude coherence check
+    selected_ids = {id(r) for r in all_six}
     spare_pool = [r for r in broad_spares if id(r) not in selected_ids]
-    all_seven = _validate_lineup(all_seven, spare_pool, config)
+    all_six = _validate_lineup(all_six, spare_pool, config)
 
-    # Re-enforce after Claude's pass (it swaps blindly and can reintroduce the same protein)
-    selected_ids = {id(r) for r in all_seven}
+    # Re-enforce after Claude's pass
+    selected_ids = {id(r) for r in all_six}
     remaining_spares = [r for r in broad_spares if id(r) not in selected_ids]
-    all_seven = _enforce_protein_diversity(all_seven, remaining_spares, max_per_protein=2)
+    all_six = _enforce_protein_diversity(all_six, remaining_spares, max_per_protein=2)
 
-    assigned = _assign_to_nights(all_seven)
+    assigned = _assign_to_nights(all_six)  # fills Sun–Thu + Sat (skips Fri)
 
-    # Determine leftover nights (recipe with servings >= 6 → next night is leftovers)
-    leftover_nights: set[int] = set()
+    # Map assigned recipes to actual day slots (skipping Friday)
+    day_slots = [i for i in range(7) if i != _FRIDAY]
+    leftover_day_slots: set[int] = set()
     for i, r in enumerate(assigned):
         if r.servings >= 6 and i + 1 < len(assigned):
-            leftover_nights.add(i + 1)
+            leftover_day_slots.add(day_slots[i + 1])
 
-    dinner_strings: list[str] = []
+    dinner_strings: list[str] = [""] * 7
+    dinner_strings[_FRIDAY] = _EAT_OUT
     for i, r in enumerate(assigned):
-        if i in leftover_nights:
+        day = day_slots[i]
+        if day in leftover_day_slots:
             prev_title = assigned[i - 1].title
-            dinner_strings.append(f"Leftovers — {prev_title}")
+            dinner_strings[day] = f"Leftovers — {prev_title}"
         else:
             cuisine = ", ".join(r.cuisine) if r.cuisine else "—"
             timing = f"{r.time_total} min" if r.time_total else "—"
-            dinner_strings.append(f"[[{r.title}]] · {cuisine} · {r.effort.capitalize()} · {timing}")
+            dinner_strings[day] = f"[[{r.title}]] · {cuisine} · {r.effort.capitalize()} · {timing}"
 
-    breakfasts = _plan_breakfasts(week_start)
+    breakfasts = _plan_breakfasts(week_start, vault_path=vault_path)
     lunches = _plan_lunches(dinner_strings, dedicated_days=config.get("dedicated_lunch_days", 2))
 
     days = [
         DayPlan(weekday=_WEEKDAYS[i], breakfast=breakfasts[i], lunch=lunches[i], dinner=dinner_strings[i])
-        for i in range(len(assigned))
+        for i in range(7)
     ]
     return MealPlan(week_of=week_str, days=days)
 
